@@ -1,155 +1,148 @@
 (() => {
-  const BUTTON = "data-fb-vercel-download";
-  const SCANNED = "data-fb-vercel-scanned";
+  "use strict";
 
-  function valid(v) {
-    if (!(v instanceof HTMLVideoElement)) return false;
-    const r = v.getBoundingClientRect();
-    return r.width >= 180 && r.height >= 120 && r.bottom > 0 && r.right > 0;
+  const BUTTON_CLASS = "fb-vd-download-btn";
+  const API_MESSAGE = "DOWNLOAD_VIDEO";
+
+  function isFacebookVideoPage() {
+    return /(^|\.)facebook\.com$/i.test(location.hostname) ||
+           /(^|\.)fb\.watch$/i.test(location.hostname);
   }
 
-  function urlsFor(v) {
-    const out = [];
-    const add = u => {
-      if (!u || u.startsWith("blob:") || u.startsWith("data:")) return;
-      if (!out.includes(u)) out.push(u);
+  function getVideoCandidates(video) {
+    const urls = [];
+    const add = (value) => {
+      if (typeof value !== "string" || !value) return;
+      if (/^https?:\/\//i.test(value)) urls.push(value);
     };
 
-    add(v.currentSrc);
-    add(v.src);
-    v.querySelectorAll("source").forEach(s => add(s.src));
+    add(video.currentSrc);
+    add(video.src);
 
-    try {
-      performance.getEntriesByType("resource").forEach(e => {
-        const u = e.name;
-        if (
-          /\.mp4(?:[?#]|$)/i.test(u) ||
-          /fbcdn|fbsbx/i.test(u)
-        ) add(u);
-      });
-    } catch (_) {}
+    video.querySelectorAll("source").forEach(source => add(source.src));
 
-    out.sort((a,b) =>
-      Number(/\.mp4(?:[?#]|$)/i.test(b)) -
-      Number(/\.mp4(?:[?#]|$)/i.test(a))
-    );
-
-    return out;
+    // Only use normal HTTP(S) URLs. Blob URLs are not useful to the Vercel
+    // server because they exist only inside this browser tab.
+    return [...new Set(urls)].filter(url => !/^blob:/i.test(url));
   }
 
-  function fileName() {
-    const d = new Date();
-    const p = n => String(n).padStart(2, "0");
-    return `facebook-video-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.mp4`;
-  }
+  function findVideo() {
+    const videos = [...document.querySelectorAll("video")];
+    if (!videos.length) return null;
 
-  async function downloadThroughVercel(url) {
-    if (!VERCEL_API_URL || VERCEL_API_URL.includes("YOUR-VERCEL-DOMAIN")) {
-      throw new Error("Configure VERCEL_API_URL in config.js first.");
-    }
-
-    const response = await fetch(VERCEL_API_URL, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({url})
+    // Prefer a visible video with a real HTTP(S) source.
+    const visible = videos.find(video => {
+      const rect = video.getBoundingClientRect();
+      return rect.width > 150 &&
+             rect.height > 100 &&
+             rect.bottom > 0 &&
+             rect.right > 0 &&
+             getVideoCandidates(video).length;
     });
 
-    if (!response.ok) {
-      let message = `Vercel API returned ${response.status}`;
-      try {
-        const data = await response.json();
-        if (data?.error) message = data.error;
-      } catch (_) {}
-      throw new Error(message);
-    }
-
-    const blob = await response.blob();
-
-    // The backend is expected to return video/mp4.
-    const mp4 = blob.type === "video/mp4"
-      ? blob
-      : new Blob([blob], {type: "video/mp4"});
-
-    const objectUrl = URL.createObjectURL(mp4);
-
-    try {
-      await chrome.runtime.sendMessage({
-        action: "saveBlob",
-        url: objectUrl,
-        filename: fileName()
-      });
-    } finally {
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 15000);
-    }
+    return visible || videos.find(video => getVideoCandidates(video).length) || null;
   }
 
-  function add(v) {
-    if (!valid(v) || v.hasAttribute(SCANNED)) return;
-    v.setAttribute(SCANNED, "1");
-
-    const parent = v.parentElement || v;
-    if (getComputedStyle(parent).position === "static")
-      parent.style.position = "relative";
+  function createButton(video) {
+    if (!video || video.dataset.fbVdButton === "1") return;
+    video.dataset.fbVdButton = "1";
 
     const button = document.createElement("button");
-    button.setAttribute(BUTTON, "1");
+    button.className = BUTTON_CLASS;
     button.type = "button";
-    button.textContent = "Download MP4";
+    button.textContent = "Download";
+    button.title = "Download this accessible video";
 
-    button.addEventListener("click", async e => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (button.dataset.busy === "1") return;
-      button.dataset.busy = "1";
-      button.textContent = "Finding video...";
-
-      const urls = urlsFor(v);
-
-      if (!urls.length) {
-        button.textContent = "No video URL";
-        setTimeout(() => {
-          button.textContent = "Download MP4";
-          button.dataset.busy = "0";
-        }, 1800);
-        return;
-      }
-
-      let success = false;
-      let lastError = "";
-
-      for (const url of urls.slice(0, 5)) {
-        try {
-          button.textContent = "Sending to Vercel...";
-          await downloadThroughVercel(url);
-          success = true;
-          break;
-        } catch (err) {
-          lastError = String(err?.message || err);
-        }
-      }
-
-      button.textContent = success ? "Downloaded ✓" : "Download failed";
-      if (!success) console.warn("Vercel Facebook downloader:", lastError);
-
-      setTimeout(() => {
-        button.textContent = "Download MP4";
-        button.dataset.busy = "0";
-      }, 1800);
+    Object.assign(button.style, {
+      position: "absolute",
+      zIndex: "2147483647",
+      right: "12px",
+      top: "12px",
+      padding: "8px 12px",
+      border: "0",
+      borderRadius: "8px",
+      background: "#1877f2",
+      color: "#fff",
+      fontSize: "13px",
+      fontWeight: "600",
+      cursor: "pointer",
+      boxShadow: "0 2px 8px rgba(0,0,0,.25)"
     });
 
-    parent.appendChild(button);
+    const wrapper = video.parentElement;
+    if (!wrapper) return;
+
+    const position = getComputedStyle(wrapper).position;
+    if (position === "static") wrapper.style.position = "relative";
+
+    wrapper.appendChild(button);
+
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      button.disabled = true;
+      button.textContent = "Preparing...";
+
+      try {
+        const candidates = getVideoCandidates(video);
+
+        if (!candidates.length) {
+          throw new Error(
+            "No direct HTTP(S) video URL is exposed by this video. " +
+            "Blob/protected streams cannot be sent to the server."
+          );
+        }
+
+        let lastError = null;
+
+        for (const url of candidates) {
+          try {
+            const response = await chrome.runtime.sendMessage({
+              type: API_MESSAGE,
+              url
+            });
+
+            if (response?.ok) {
+              button.textContent = "Download started";
+              setTimeout(() => {
+                button.textContent = "Download";
+                button.disabled = false;
+              }, 1800);
+              return;
+            }
+
+            lastError = new Error(response?.error || "Download failed");
+          } catch (error) {
+            lastError = error;
+          }
+        }
+
+        throw lastError || new Error("Download failed");
+      } catch (error) {
+        console.error("[Facebook Downloader]", error);
+        button.textContent = "Download failed";
+        button.title = error?.message || "Download failed";
+
+        setTimeout(() => {
+          button.textContent = "Download";
+          button.disabled = false;
+        }, 2500);
+      }
+    });
   }
 
   function scan() {
-    document.querySelectorAll("video").forEach(add);
+    if (!isFacebookVideoPage()) return;
+    document.querySelectorAll("video").forEach(createButton);
   }
 
-  new MutationObserver(scan).observe(
-    document.documentElement,
-    {childList:true, subtree:true}
-  );
+  const observer = new MutationObserver(scan);
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  });
 
   scan();
-  setInterval(scan, 2000);
+  setInterval(scan, 2500);
 })();
