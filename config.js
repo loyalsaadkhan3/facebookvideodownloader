@@ -7,4 +7,4 @@
 //
 // IMPORTANT: do not include a trailing slash.
 // ============================================================
-const VERCEL_API_URL = "https://YOUR-VERCEL-DOMAIN.vercel.app/api/download";
+const VERCEL_API_URL = "https://facebookvideodownloader-nine.vercel.app/api/download";
