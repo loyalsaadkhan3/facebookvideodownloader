@@ -1,0 +1,17 @@
+[data-fb-vercel-download] {
+  position:absolute !important;
+  right:8px !important;
+  bottom:8px !important;
+  z-index:2147483647 !important;
+  border:0 !important;
+  border-radius:8px !important;
+  padding:9px 12px !important;
+  background:rgba(0,0,0,.84) !important;
+  color:#fff !important;
+  font:600 12px Arial,sans-serif !important;
+  cursor:pointer !important;
+  box-shadow:0 2px 8px rgba(0,0,0,.3) !important;
+}
+[data-fb-vercel-download]:hover {
+  background:#1877f2 !important;
+}
